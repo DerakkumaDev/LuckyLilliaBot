@@ -96,7 +96,7 @@ const GetUserProfile = defineApi(
       school: userInfo.detail.commonExt?.college || '',
     }
     if (profile.level === 0) {
-      profile.level = await ctx.app.pmhq.fetchUserLevel(payload.user_id)
+      profile.level = (await ctx.app.pmhq.fetchUserInfo(payload.user_id)).level
     }
     return Ok(profile)
   }
