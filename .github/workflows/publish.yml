@@ -132,7 +132,7 @@ jobs:
           wget https://github.com/LLOneBot/exe/releases/download/0.0.0/QQ-macos-6.9.88-44725.zip
           unzip QQ-macos-6.9.88-44725.zip -d bin/qq
           rm QQ-macos-6.9.88-44725.zip
-          zip -r -9 ../LLBot-CLI-macos-arm64.zip ./*
+          zip -r ../LLBot-CLI-macos-arm64.zip ./*
 
       - name: Compress for Docker
         run: |
