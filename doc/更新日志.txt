@@ -1,3 +1,33 @@
+V7.9.0
+更新时间 2026-02-18
+
+**Milky**
+* 增加了与好友/群置顶有关的 API
+  * `get_peer_pins`
+  * `set_peer_pin`
+* 给 `send_group_message_reaction` 增加了参数 `reaction_type`，表示回应表情的类型，分为 QQ 系统表情 `face` 和 Emoji `emoji` 两种类型
+* 增加了发送的 `light_app` 消息段，包含字段 `json_payload` 表示小程序的 JSON 内容
+* 给发送的 `forward` 消息段补充更多可定制的元信息
+  * `title` (optional)，具体解释见 [常见问题 Q&A](https://github.com/SaltifyDev/milky/issues/46)
+  * `preview` (optional)，同上
+  * `summary` (optional)，同上
+  * `prompt` (optional)，表示合并转发在消息预览中的外显文本，但仅对移动端 QQ 有效
+* 给接收的 `reply` 消息段增加被引用（回复）的消息的具体信息
+  * `sender_id`，表示被引用的消息的发送者 QQ 号
+  * `sender_name` (optional)，表示被引用的消息的发送者名称，仅在合并转发中可以获取
+  * `time`，表示被引用的消息的发送时间
+  * `segments`，表示被引用的消息的内容
+* 给接收的 `mention` 消息段增加 `name` 字段，表示去除 `@` 前缀的被提及者的名称
+* 给 `IncomingForwardedMessage` 增加字段 `message_seq`，表示该消息在来源会话中的序列号
+* 增加了事件类型 `peer_pin_change`，表示好友或群的置顶状态改变
+
+**OneBot**
+* 修复 `get_group_info` 返回的 `owner_id` 可能为 `0`
+
+**Satori**
+* 支持上报 `reaction-added` 和 `reaction-removed` 事件
+
+=================
 V7.8.5
 更新时间 2026-02-16
 
