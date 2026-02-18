@@ -474,6 +474,10 @@ export async function transformOlpushEvent(
             user_id: userId,
             message_seq: target.sequence,
             face_id: info.code,
+            reaction_type: {
+              1: 'face',
+              2: 'emoji'
+            }[info.reactionType] as 'face' | 'emoji',
             is_add: info.actionType === 1
           } satisfies MilkyEventTypes['group_message_reaction']
         }
