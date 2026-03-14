@@ -251,6 +251,9 @@ function extractAbstractContent(abstractContent: any): string {
     if (item.videoElement || item.elementType === 5) {
       return '[视频]'
     }
+    if (item.multiForwardMsgElement || item.elementType === 16) {
+      return '[聊天记录]'
+    }
 
     return ''
   }
@@ -677,6 +680,35 @@ export function createEventSource(
   } as EventSource
   
   return wrappedEventSource
+}
+
+// 获取合并转发消息内容
+export interface ForwardMessageSegment {
+  type: 'text' | 'image' | 'face' | 'forward'
+  data: {
+    text?: string
+    url?: string
+    width?: number
+    height?: number
+    faceId?: number
+    resId?: string
+    title?: string
+  }
+}
+
+export interface ForwardMessageItem {
+  senderName: string
+  senderUin: number
+  time: number
+  segments: ForwardMessageSegment[]
+}
+
+export async function getForwardMessages(resId: string): Promise<ForwardMessageItem[]> {
+  const response = await apiFetch<ForwardMessageItem[]>(`/api/webqq/forward-msg?resId=${encodeURIComponent(resId)}`)
+  if (!response.success) {
+    throw new Error(response.message || '获取合并转发消息失败')
+  }
+  return response.data || []
 }
 
 // 搜索过滤群组

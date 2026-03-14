@@ -4,6 +4,9 @@ import { ChatType, ElementType, RawMessage } from '@/ntqqapi/types'
 import { SendElement } from '@/ntqqapi/entities'
 import { serializeResult } from '../../../BE/utils'
 import { unlink } from 'node:fs/promises'
+import { pmhq } from '@/ntqqapi/native/pmhq'
+import { Msg, Media } from '@/ntqqapi/proto'
+import { inflateSync } from 'node:zlib'
 
 export function createMessagesRoutes(ctx: Context, createPicElement: (imagePath: string) => Promise<any>): Router {
   const router = Router()
@@ -193,6 +196,90 @@ export function createMessagesRoutes(ctx: Context, createPicElement: (imagePath:
       }
       
       res.status(500).json({ success: false, message: '发送消息失败', error: e.message })
+    }
+  })
+
+  // 获取合并转发消息内容
+  router.get('/forward-msg', async (req, res) => {
+    try {
+      const { resId } = req.query as { resId: string }
+      if (!resId) {
+        res.status(400).json({ success: false, message: '缺少 resId 参数' })
+        return
+      }
+
+      const items = await pmhq.getMultiMsg(resId)
+      const messages = items[0]?.buffer?.msg || []
+
+      const transformedMessages = await Promise.all(messages.map(async (msg: any) => {
+        const { body, contentHead, routingHead } = msg
+        const segments: any[] = []
+
+        for (const elem of body?.richText?.elems || []) {
+          if (elem.text) {
+            segments.push({ type: 'text', data: { text: elem.text.str } })
+          } else if (elem.face) {
+            segments.push({ type: 'face', data: { faceId: elem.face.index } })
+          } else if (elem.commonElem) {
+            const { businessType, serviceType } = elem.commonElem
+            if (serviceType === 33) {
+              try {
+                const { faceId } = Msg.QSmallFaceExtra.decode(elem.commonElem.pbElem)
+                segments.push({ type: 'face', data: { faceId } })
+              } catch { /* ignore */ }
+            } else if (serviceType === 48 && (businessType === 10 || businessType === 20)) {
+              try {
+                const { extBizInfo, msgInfoBody } = Media.MsgInfo.decode(elem.commonElem.pbElem)
+                const { index, pic } = msgInfoBody[0]
+                const rkeyData = await ctx.ntFileApi.rkeyManager.getRkey()
+                const rkey = businessType === 10 ? rkeyData.private_rkey : rkeyData.group_rkey
+                const url = `https://${pic!.domain}${pic!.urlPath}&spec=0${rkey}`
+                segments.push({
+                  type: 'image',
+                  data: {
+                    url,
+                    width: index.info.width,
+                    height: index.info.height,
+                  }
+                })
+              } catch { /* ignore */ }
+            }
+          } else if (elem.richMsg && elem.richMsg.serviceId === 35) {
+            // 嵌套的合并转发
+            try {
+              const xml = inflateSync(elem.richMsg.template.subarray(1)).toString()
+              const nestedResId = xml.match(/m_resid="([^"]+)"/)?.[1]
+              if (nestedResId) {
+                const titleMatch = xml.match(/brief="([^"]+)"/)?.[1]
+                segments.push({
+                  type: 'forward',
+                  data: {
+                    resId: nestedResId,
+                    title: titleMatch || '[聊天记录]',
+                  }
+                })
+              }
+            } catch { /* ignore */ }
+          }
+        }
+
+        const isGroup = contentHead?.msgType === 82
+        const senderName = isGroup
+          ? routingHead?.group?.groupCard || ''
+          : routingHead?.c2c?.friendName || ''
+
+        return {
+          senderName,
+          senderUin: routingHead?.fromUin || 0,
+          time: contentHead?.msgTime || 0,
+          segments,
+        }
+      }))
+
+      res.json({ success: true, data: transformedMessages })
+    } catch (e: any) {
+      ctx.logger.error('获取合并转发消息失败:', e)
+      res.status(500).json({ success: false, message: '获取合并转发消息失败', error: e.message })
     }
   })
 

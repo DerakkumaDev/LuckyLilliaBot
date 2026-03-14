@@ -1,8 +1,10 @@
-import React, { useState, memo, useRef } from 'react'
-import { Loader2, Mic, Play, Pause } from 'lucide-react'
+import React, { useState, memo, useRef, useCallback } from 'react'
+import { Loader2, Mic, Play, Pause, ChevronRight, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import type { MessageElement, RawMessage } from '../../../types/webqq'
 import { getToken } from '../../../utils/api'
-import { translatePttToText, getAudioProxyUrl } from '../../../utils/webqqApi'
+import { translatePttToText, getAudioProxyUrl, getForwardMessages } from '../../../utils/webqqApi'
+import type { ForwardMessageItem, ForwardMessageSegment } from '../../../utils/webqqApi'
 
 // 图片预览上下文
 export const ImagePreviewContext = React.createContext<{
@@ -216,6 +218,9 @@ export const MessageElementRenderer = memo<{ element: MessageElement; message?: 
     return <span className="text-theme-hint text-xs">[系统提示]</span>
   }
   if (element.arkElement) return <span>[卡片消息]</span>
+  if (element.multiForwardMsgElement) {
+    return <ForwardMsgElementRenderer element={element} />
+  }
   if (element.marketFaceElement) {
     const { emojiId, faceName, supportSize } = element.marketFaceElement
     const { width = 200, height = 200 } = supportSize?.[0] ?? {}
@@ -252,7 +257,8 @@ export const hasValidContent = (element: MessageElement): boolean => {
     element.faceElement ||
     element.grayTipElement ||
     element.arkElement ||
-    element.marketFaceElement
+    element.marketFaceElement ||
+    element.multiForwardMsgElement
   )
 }
 
@@ -409,5 +415,184 @@ const PttElementRenderer: React.FC<{ element: MessageElement; message?: RawMessa
         </div>
       )}
     </div>
+  )
+}
+
+// 合并转发消息内容渲染（用于弹窗内显示）
+const ForwardSegmentRenderer: React.FC<{ segment: ForwardMessageSegment }> = ({ segment }) => {
+  const previewContext = React.useContext(ImagePreviewContext)
+
+  if (segment.type === 'text' && segment.data.text) {
+    return <span className="whitespace-pre-wrap break-all" style={{ overflowWrap: 'anywhere' }}>{segment.data.text}</span>
+  }
+  if (segment.type === 'image' && segment.data.url) {
+    const proxyUrl = getProxyImageUrl(segment.data.url)
+    return (
+      <img
+        src={proxyUrl}
+        alt="图片"
+        loading="lazy"
+        className="max-w-[200px] max-h-[150px] rounded-lg cursor-pointer object-cover"
+        onClick={() => previewContext?.showPreview(proxyUrl)}
+      />
+    )
+  }
+  if (segment.type === 'face' && segment.data.faceId !== undefined) {
+    return (
+      <img
+        src={`/face/${segment.data.faceId}.png`}
+        alt={`[表情${segment.data.faceId}]`}
+        className="inline-block align-text-bottom"
+        style={{ width: 24, height: 24 }}
+        onError={(e) => {
+          const target = e.target as HTMLImageElement
+          target.style.display = 'none'
+          const span = document.createElement('span')
+          span.textContent = `[表情${segment.data.faceId}]`
+          target.parentNode?.insertBefore(span, target)
+        }}
+      />
+    )
+  }
+  if (segment.type === 'forward' && segment.data.resId) {
+    return <NestedForwardCard resId={segment.data.resId} title={segment.data.title || '[聊天记录]'} />
+  }
+  return null
+}
+
+// 嵌套合并转发卡片（递归支持）
+const NestedForwardCard: React.FC<{ resId: string; title: string }> = ({ resId, title }) => {
+  const [showModal, setShowModal] = useState(false)
+
+  return (
+    <>
+      <div
+        className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+        onClick={() => setShowModal(true)}
+      >
+        <span className="text-sm text-theme-secondary">{title}</span>
+        <ChevronRight size={14} className="text-theme-hint flex-shrink-0" />
+      </div>
+      {showModal && <ForwardMsgModal resId={resId} title={title} onClose={() => setShowModal(false)} />}
+    </>
+  )
+}
+
+// 解析 xmlContent 中的预览信息
+function parseForwardXml(xmlContent: string): { title: string; previews: string[]; summary: string } {
+  const title = xmlContent.match(/<title[^>]*color="#000000"[^>]*>(.*?)<\/title>/)?.[1] || '[聊天记录]'
+  const previewMatches = xmlContent.match(/<title[^>]*color="#777777"[^>]*>(.*?)<\/title>/g)
+  const previews = previewMatches?.map(m => m.replace(/<[^>]+>/g, '')) || []
+  const summary = xmlContent.match(/<summary[^>]*>(.*?)<\/summary>/)?.[1] || ''
+  return { title, previews, summary }
+}
+
+// 合并转发消息卡片渲染器
+const ForwardMsgElementRenderer: React.FC<{ element: MessageElement }> = ({ element }) => {
+  const [showModal, setShowModal] = useState(false)
+  const forward = element.multiForwardMsgElement!
+  const { title, previews, summary } = parseForwardXml(forward.xmlContent)
+
+  return (
+    <>
+      <div
+        className="w-[240px] bg-gray-50 dark:bg-gray-800/80 rounded-lg overflow-hidden cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/80 transition-colors border border-theme-divider"
+        onClick={() => setShowModal(true)}
+      >
+        <div className="px-3 pt-2.5 pb-1">
+          <div className="text-sm font-medium text-theme mb-1.5">{title}</div>
+          {previews.map((preview, i) => (
+            <div key={i} className="text-xs text-theme-secondary truncate leading-5">{preview}</div>
+          ))}
+        </div>
+        <div className="flex items-center justify-between px-3 py-1.5 border-t border-theme-divider">
+          <span className="text-xs text-theme-hint">{summary}</span>
+          <ChevronRight size={12} className="text-theme-hint" />
+        </div>
+      </div>
+      {showModal && <ForwardMsgModal resId={forward.resId} title={title} onClose={() => setShowModal(false)} />}
+    </>
+  )
+}
+
+// 合并转发消息弹窗
+const ForwardMsgModal: React.FC<{ resId: string; title: string; onClose: () => void }> = ({ resId, title, onClose }) => {
+  const [messages, setMessages] = useState<ForwardMessageItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const data = await getForwardMessages(resId)
+        if (!cancelled) setMessages(data)
+      } catch (e: any) {
+        if (!cancelled) setError(e.message || '加载失败')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [resId])
+
+  const formatTime = (ts: number) => {
+    if (!ts) return ''
+    const d = new Date(ts * 1000)
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl w-[90vw] max-w-[480px] max-h-[80vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* 标题栏 */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-theme-divider flex-shrink-0">
+          <span className="font-medium text-theme">{title}</span>
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <X size={18} className="text-theme-hint" />
+          </button>
+        </div>
+        {/* 内容区 */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {loading && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={24} className="animate-spin text-pink-500" />
+            </div>
+          )}
+          {error && (
+            <div className="text-center py-8 text-red-500 text-sm">{error}</div>
+          )}
+          {!loading && !error && messages.length === 0 && (
+            <div className="text-center py-8 text-theme-hint text-sm">暂无消息</div>
+          )}
+          {!loading && !error && messages.map((msg, i) => (
+            <div key={i} className="flex gap-2">
+              <img
+                src={`https://q1.qlogo.cn/g?b=qq&nk=${msg.senderUin}&s=640`}
+                alt={msg.senderName}
+                className="w-7 h-7 rounded-full object-cover flex-shrink-0 mt-0.5"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs font-medium text-theme-secondary">{msg.senderName}</span>
+                  <span className="text-xs text-theme-hint">{formatTime(msg.time)}</span>
+                </div>
+                <div className="text-sm text-theme break-words">
+                  {msg.segments.map((seg, j) => <ForwardSegmentRenderer key={j} segment={seg} />)}
+                  {msg.segments.length === 0 && <span className="text-theme-hint">[不支持的消息类型]</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
   )
 }

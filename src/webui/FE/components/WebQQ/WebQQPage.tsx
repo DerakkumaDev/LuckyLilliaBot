@@ -46,6 +46,10 @@ function extractMessageSummary(rawMessage: RawMessage): string {
       summaryParts.push('[回复]')
       continue
     }
+    if (element.multiForwardMsgElement) {
+      summaryParts.push('[聊天记录]')
+      continue
+    }
   }
 
   const summary = summaryParts.join('').replace(/\s+/g, ' ').trim()
