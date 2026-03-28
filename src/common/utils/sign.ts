@@ -1,15 +1,16 @@
 import { Context } from 'cordis'
 
 export interface IdMusicSignPostData {
-  type: 'qq' | '163'
+  type: 'qq' | '163' | 'kugou' | 'kuwo' | 'migu'
   id: string | number
 }
 
 export interface CustomMusicSignPostData {
-  type: 'custom'
+  type: 'qq' | '163' | 'kugou' | 'kuwo' | 'migu' | 'custom'
   url: string
   audio: string
   title: string
+  content?: string
   image?: string
   singer?: string
 }
@@ -29,8 +30,8 @@ export class MusicSign {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(postData),
     })
-    if (!resp.ok) throw new Error(resp.statusText)
     const data = await resp.text()
+    if (!resp.ok) throw new Error(data)
     this.ctx.logger.info('音乐消息生成成功', data)
     return data
   }

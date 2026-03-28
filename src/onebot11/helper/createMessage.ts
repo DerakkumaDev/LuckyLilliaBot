@@ -16,7 +16,7 @@ import { SendElement } from '@/ntqqapi/entities'
 import { selfInfo } from '@/common/globalVars'
 import { uri2local, isNumeric } from '@/common/utils'
 import { Context } from 'cordis'
-import { MusicSign, MusicSignPostData } from '@/common/utils/sign'
+import { MusicSign } from '@/common/utils/sign'
 import { randomUUID } from 'node:crypto'
 
 export async function createSendElements(
@@ -112,7 +112,7 @@ export async function createSendElements(
           ctx,
           (await handleOb11RichMedia(ctx, segment, deleteAfterSentFiles)).path,
           segment.data.summary ?? '',
-          Number(segment.data.subType) || 0 ,
+          Number(segment.data.subType) || 0,
           segment.data.type === 'flash'
         )
         deleteAfterSentFiles.push(res.picElement.sourcePath!)
@@ -181,33 +181,19 @@ export async function createSendElements(
         if (!['qq', '163', 'kugou', 'kuwo', 'migu', 'custom'].includes(type)) {
           throw new Error(`不支持的音乐卡片 type ${type}`)
         }
-        if (type === 'custom') {
+        if (!('id' in segment.data)) {
           if (!segment.data.url) {
             throw new Error('自定义音卡缺少参数url')
           }
           if (!segment.data.title) {
             throw new Error('自定义音卡缺少参数title')
           }
-        } else {
-          if (!segment.data.id) {
-            throw new Error('音乐卡片缺少id参数')
-          }
-        }
-        let postData: MusicSignPostData
-        if (type === 'custom' && segment.data.content) {
-          const { content, ...others } = segment.data
-          postData = { singer: content, ...others }
-        } else {
-          postData = segment.data
         }
         try {
-          const content = await new MusicSign(ctx, musicSignUrl).sign(postData)
-          if (!content) {
-            throw new Error('提交内容有误或者签名服务器签名失败')
-          }
+          const content = await new MusicSign(ctx, musicSignUrl).sign(segment.data)
           sendElements.push(SendElement.ark(content))
         } catch (e) {
-          throw new Error(`签名音乐消息失败：${e}`)
+          throw new Error(`签名音乐消息失败：${(e as Error).message}`)
         }
       }
         break
